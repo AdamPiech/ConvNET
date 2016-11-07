@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.opencv.core.Core.absdiff;
+import static org.opencv.core.Core.cartToPolar;
+import static org.opencv.core.CvType.CV_32FC1;
 import static org.opencv.imgproc.Imgproc.*;
 import static org.opencv.imgproc.Imgproc.boundingRect;
 
@@ -29,6 +31,7 @@ public class MotionDetector {
             camera.read(originalFrame);
 
             originalFrame.copyTo(recentFrame);
+//            recentFrame = recognizeShadows(recentFrame);
             cvtColor(recentFrame, recentFrame, COLOR_BGR2GRAY, 1);
             blur(recentFrame, recentFrame, new Size(25, 25));
 
@@ -39,7 +42,7 @@ public class MotionDetector {
             Mat deltaFrame = new Mat();
             absdiff(previousFrame, recentFrame, deltaFrame);
 //            threshold(deltaFrame, deltaFrame, 25, 255, THRESH_BINARY);
-            blur(deltaFrame, deltaFrame, new Size(50, 50));
+//            blur(deltaFrame, deltaFrame, new Size(50, 50));
             threshold(deltaFrame, deltaFrame, 25, 255, THRESH_BINARY);
             findMotion(callback, originalFrame, deltaFrame);
             recentFrame.copyTo(previousFrame);
@@ -71,5 +74,20 @@ public class MotionDetector {
             Thread.sleep(250);
         } catch (InterruptedException e) {
         }
+    }
+
+    public static Mat recognizeShadows(Mat image) {
+        Mat grad_x = new Mat();
+        Mat grad_y = new Mat();
+
+        Scharr(image, grad_x, CV_32FC1, 1, 0);
+        Scharr(image, grad_y, CV_32FC1, 0, 1);
+
+        Mat magnitude = new Mat();
+        Mat direction = new Mat();
+        boolean useDegree = true;
+        cartToPolar(grad_x, grad_y, magnitude, direction, useDegree);
+
+        return magnitude;
     }
 }
