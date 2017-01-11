@@ -1,46 +1,43 @@
 package adampiech.convnet.controll.engine.convNETLayers;
 
-import adampiech.convnet.controll.engine.convNETLayers.interfaces.CCNLayer;
-import org.opencv.core.Mat;
-
-import static org.opencv.core.Core.*;
+import org.la4j.Matrix;
+import org.la4j.matrix.dense.Basic2DMatrix;
 
 /**
- * Created by Adam Piech on 2016-10-17.
+ * Created by Adam Piech on 2016-11-15.
  */
-public class PoolingLayer implements CCNLayer {
+public class PoolingLayer {
 
-    private Mat[] layer;
+    private Matrix[] matrix;
     private int receptiveField;
     private int stride;
 
-    public PoolingLayer(Mat[] layer, int receptiveField, int stride) {
-        this.layer = layer;
+    public PoolingLayer(int receptiveField, int stride) {
         this.receptiveField = receptiveField;
         this.stride = stride;
     }
 
-    @Override
-    public Mat[] processLayer() {
-        Mat[] results = new Mat[layer.length];
-        for (int depthIndex = 0; depthIndex < layer.length; depthIndex++) {
-            Mat result = new Mat(layer[0].width() / 2, layer[0].height() / 2, layer[0].type());
-            processSlice(layer[depthIndex], result);
-            results[depthIndex] = result;
+    public Matrix[] processLayer(Matrix[] matrix) {
+        Matrix[] results = new Matrix[matrix.length];
+        for (int depth = 0; depth < matrix.length; depth++) {
+            Matrix result = new Basic2DMatrix(matrix[0].rows() / 2, matrix[0].columns() / 2);
+            processSlice(matrix[depth], result);
+            results[depth] = result;
         }
         return results;
     }
 
-    private void processSlice(Mat mat, Mat result) {
-        for (int indexX = 0; indexX + receptiveField <= layer[0].width(); indexX += stride) {
-            for (int indexY = 0; indexY + receptiveField <= layer[0].height(); indexY += stride) {
-                double value = minMaxLoc(mat.submat(indexX, indexX + receptiveField, indexY, indexY + receptiveField)).maxVal;
-                result.put(indexX / 2, indexY / 2, value);
+    private void processSlice(Matrix matrix, Matrix result) {
+        for (int row = 0; row + receptiveField <= matrix.rows(); row += stride) {
+            for (int col = 0; col + receptiveField <= matrix.columns(); col += stride) {
+                double value = matrix.slice(row, col, row + receptiveField, col + receptiveField).max();
+                result.set(row / 2, col / 2, value);
             }
         }
     }
 
     public int countNewLayerSize() {
-        return (layer[0].width() - receptiveField) / stride + 1;
+        return (matrix[0].rows() - receptiveField) / stride + 1;
     }
+
 }

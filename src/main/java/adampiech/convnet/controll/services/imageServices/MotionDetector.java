@@ -1,6 +1,6 @@
-package adampiech.convnet.controll.imageServices;
+package adampiech.convnet.controll.services.imageServices;
 
-import adampiech.convnet.utils.Callback;
+import adampiech.convnet.controll.utils.Callback;
 import org.opencv.core.*;
 import org.opencv.videoio.VideoCapture;
 
@@ -63,7 +63,7 @@ public class MotionDetector {
             Rect rect = boundingRect(points);
             try {
                 Mat subMatFrame = originalFrame.submat(rect.x, rect.x + rect.width, rect.y, rect.y + rect.height);
-                callback.setAction(subMatFrame);
+//                callback.setAction(subMatFrame);
             } catch (CvException e) {
             }
         }

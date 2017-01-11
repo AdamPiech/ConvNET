@@ -1,171 +1,201 @@
 package adampiech.convnet.controll.engine.convNETLayers;
 
-import adampiech.convnet.controll.engine.convNETLayers.interfaces.CCNLayer;
-import org.opencv.core.*;
+import adampiech.convnet.controll.utils.Callback;
+import org.la4j.Matrix;
+import org.la4j.matrix.dense.Basic2DMatrix;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
+import static adampiech.convnet.controll.services.matrixServices.MatrixServices.*;
 import static java.lang.Math.*;
-import static org.opencv.core.Core.*;
-import static org.opencv.core.CvType.*;
-import static org.opencv.imgcodecs.Imgcodecs.*;
 
 /**
- * Created by Adam Piech on 2016-10-10.
+ * Created by Adam Piech on 2016-11-14.
  */
 
-public class ConvNETLayer implements CCNLayer {
+public class ConvNETLayer {
 
-    private static final int TYPE_OF_MATRIX = CV_16S;
-//    private static final int TYPE_OF_MATRIX = CV_64FC1;
+    private Random rand = new Random();
 
-    private List<Mat> processImage;
+    private Matrix[] processInput;
+    private Matrix[] output;
+    private List<Matrix[]> weights;
+    private List<Double> biases;
+
+    private int size;
+    private int length;
     private int receptiveField;
     private int depth;
     private int stride;
     private int zeroPadding;
+    private int newLayerSize;
 
-    private int counter = 0;
-    private String directory;
-
-    public ConvNETLayer(Mat image, int receptiveField, int depth, int stride, int zeroPadding, String directory) {
+    public ConvNETLayer(int size, int length, int receptiveField, int depth, int stride, int zeroPadding) {
+        this.size = size;
+        this.length = length;
         this.receptiveField = receptiveField;
         this.depth = depth;
         this.stride = stride;
         this.zeroPadding = zeroPadding;
-        this.directory = directory;
-        this.processImage = adjustImageData(image);
+        this.newLayerSize = countNewLayerSize();
+        this.weights = createWeightsMatrix();
+        this.biases = createBiasMatrix();
     }
 
-    public ConvNETLayer(Mat[] image, int receptiveField, int depth, int stride, int zeroPadding, String directory) {
-        this.receptiveField = receptiveField;
-        this.depth = depth;
-        this.stride = stride;
-        this.zeroPadding = zeroPadding;
-        this.directory = directory;
-        this.processImage = adjustImageData(image);
-    }
-
-    @Override
-    public Mat[] processLayer() {
-        List<Mat[]> weights = createWeightsList();
-        Mat[] biases = createBiasMatrix();
-        Mat[] results = createResultMatrix();
+    public Matrix[] processLayer(Matrix[] input, Callback callback) {
+        processInput = adjustImageData(input);
+        Matrix[] results = createResultMatrix();
 
         for (int depthIndex = 0; depthIndex < depth; depthIndex++) {
-            processImage(processImage, weights.get(depthIndex), biases[depthIndex], results[depthIndex]);
-            createTestImage(results[depthIndex]);
-        }
-        return results;
-    }
-
-    private void processImage(List<Mat> procesImg, Mat[] weights, Mat bias, Mat results) {
-        for (int imgIndexX = 0; imgIndexX + receptiveField <= processImage.get(0).width(); imgIndexX += stride) {
-            for (int imgIndexY = 0; imgIndexY + receptiveField <= processImage.get(0).height(); imgIndexY += stride) {
-                int result = processChannel(procesImg, weights, imgIndexX, imgIndexY);
-                results.put(imgIndexX / stride, imgIndexY / stride, max(result + (int) (bias.get(0, 0)[0]), 0));
+            for (int row = 0; row + receptiveField <= size; row += stride) {
+                for (int col = 0; col + receptiveField <= size; col += stride) {
+                    double result = 0.0;
+                    for (int subLayer = 0; subLayer < processInput.length; subLayer++) {
+                        result += arrayMultiplicationAndSum(weights.get(depthIndex)[subLayer],
+                                processInput[subLayer].slice(row, col, row + receptiveField, col + receptiveField));
+                    }
+                    results[depthIndex].set(row / stride, col / stride, activationFunction(result + biases.get(depthIndex)));
+                }
+            }
+            if (callback != null) {
+                callback.setAction(results[depthIndex]);
             }
         }
+        return output = results;
     }
 
-    private int processChannel(List<Mat> procesImg, Mat[] weights, int imgIndexX, int imgIndexY) {
-        int result = 0;
-        for (int channelIndex = 0; channelIndex < procesImg.size(); channelIndex++) {
-            Mat mat = new Mat();
-            multiply(procesImg.get(channelIndex).submat(imgIndexX, imgIndexX + receptiveField, imgIndexY, imgIndexY + receptiveField), weights[channelIndex], mat);
-            result += (int) (sumElems(mat).val[0]);
+    public Matrix[] backPropagation(Matrix[] delta) {
+        BackPropagation backpropagation = new BackPropagation();
+        return backpropagation.computeBackPropagation(processInput, output, delta, weights, biases, stride);
+    }
+
+    private Matrix[] adjustImageData(Matrix[] input) {
+        Matrix[] processMatrix = new Matrix[input.length];
+        for (int index = 0; index < input.length; index++) {
+            processMatrix[index] = addZeroPadding(input[index]);
         }
-        return result;
+        return processMatrix;
     }
 
-    private List<Mat> adjustImageData(Mat image) {
-        List<Mat> procaessImg = new ArrayList<>();
-        split(image, procaessImg);
-        for (Mat channel : procaessImg) {
-            channel.convertTo(channel, TYPE_OF_MATRIX);
-            addZeroPadding(channel).copyTo(channel);
-        }
-        return procaessImg;
-    }
-
-    private List<Mat> adjustImageData(Mat[] image) {
-        List<Mat> processImg = new ArrayList<>();
-        for (Mat layer : image) {
-            layer.convertTo(layer, TYPE_OF_MATRIX);
-            addZeroPadding(layer).copyTo(layer);
-            processImg.add(layer);
-        }
-        return processImg;
-    }
-
-    private Mat addZeroPadding(Mat imageLayer) {
-        Mat imageLayerWithZeros = Mat.zeros(imageLayer.width() + zeroPadding * 2, imageLayer.height() + zeroPadding * 2, TYPE_OF_MATRIX);
-        for (int indexX = 0; indexX < imageLayer.width(); indexX++) {
-            for (int indexY = 0; indexY < imageLayer.height(); indexY++) {
-//                double[] buff = new double[imageLayer.channels()];
-                short[] buff = new short[imageLayer.channels()];
-                imageLayer.get(indexX, indexY, buff);
-                imageLayerWithZeros.put(indexX + zeroPadding, indexY + zeroPadding, buff);
+    private Matrix addZeroPadding(Matrix matrixDepthLayer) {
+        Matrix imageLayerWithZeros = Matrix.zero(matrixDepthLayer.rows() + zeroPadding * 2, matrixDepthLayer.columns() + zeroPadding * 2);
+        for (int row = 0; row < matrixDepthLayer.rows(); row++) {
+            for (int col = 0; col < matrixDepthLayer.columns(); col++) {
+                imageLayerWithZeros.set(row + zeroPadding, col + zeroPadding, matrixDepthLayer.get(row, col));
             }
         }
         return imageLayerWithZeros;
     }
 
-    private Mat[] createResultMatrix() {
-        Mat[] weights = new Mat[depth];
-        for (int index = 0; index < weights.length; index++) {
-            weights[index] = new Mat(countNewLayerSize(), countNewLayerSize(), TYPE_OF_MATRIX);
+    private Matrix[] createResultMatrix() {
+        Matrix[] matrixForResults = new Matrix[depth];
+        for (int index = 0; index < depth; index++) {
+            matrixForResults[index] = new Basic2DMatrix(newLayerSize, newLayerSize);
         }
-        return weights;
+        return matrixForResults;
     }
 
-    private List<Mat[]> createWeightsList() {
-        List<Mat[]> weightsList = new ArrayList<>();
+    private List<Matrix[]> createWeightsMatrix() {
+        List<Matrix[]> weightsList = new ArrayList<>();
         for (int index = 0; index < depth; index++) {
-            weightsList.add(index, createWeightMatrix());
+            weightsList.add(index, createSingleWeightMatrix());
         }
         return weightsList;
     }
 
-    private Mat[] createWeightMatrix() {
-        Mat[] weight = new Mat[processImage.size()];
+    private Matrix[] createSingleWeightMatrix() {
+        Matrix[] weight = new Matrix[length];
         for (int index = 0; index < weight.length; index++) {
-            weight[index] = new Mat(receptiveField, receptiveField, TYPE_OF_MATRIX);
-            randu(weight[index], -1.0, 2.0);
-
-//            Random random = new Random();
-//            Scalar alpha = new Scalar(random.nextDouble());
-//            Core.multiply(weight[index], alpha, weight[index]);
-
-//            System.out.println(weight[index].dump());
-//            System.out.println();
+            weight[index] = new Basic2DMatrix(receptiveField, receptiveField);
+            for (int row = 0; row < receptiveField; row++) {
+                for (int col = 0; col < receptiveField; col++) {
+                    weight[index].set(row, col, rand.nextDouble() * 2 - 1);
+                }
+            }
         }
         return weight;
     }
 
-    private Mat[] createBiasMatrix() {
-        Mat[] biases = new Mat[depth];
-        for (int index = 0; index < biases.length; index++) {
-            biases[index] = new Mat(1, 1, TYPE_OF_MATRIX);
-            randu(biases[index], 0, 2);
+    private List<Double> createBiasMatrix() {
+        List<Double> biases = new ArrayList<>(depth);
+        for (int index = 0; index < depth; index++) {
+            biases.add(rand.nextDouble());
         }
         return biases;
     }
 
     public int countNewLayerSize() {
-        // return (processImage.get(0).width() - receptiveField + zeroPadding * 2) / stride + 1;
-        return (processImage.get(0).width() - receptiveField) / stride + 1;
+        return (size - receptiveField + zeroPadding * 2) / stride + 1;
     }
 
-    private void createTestImage(Mat result) {
-        String path = "results" + File.separator;
-        Mat image = new Mat();
-        convertScaleAbs(result, image);
-
-        System.out.println(directory + "_" + ++counter);
-        new File(path + directory).mkdir();
-        imwrite(path + directory + File.separator + directory + "_" + counter + ".png", image);
+    private double activationFunction(double value) {
+        return max(value, 0.0);
     }
+
+    public List<Matrix[]> getWeights() {
+        return weights;
+    }
+
+    public void setWeights(List<Matrix[]> weights) {
+        this.weights = weights;
+    }
+
+    public List<Double> getBiases() {
+        return biases;
+    }
+
+    public void setBiases(List<Double> biases) {
+        this.biases = biases;
+    }
+
+    public int getSize() {
+        return size;
+    }
+
+    public void setSize(int size) {
+        this.size = size;
+    }
+
+    public int getLength() {
+        return length;
+    }
+
+    public void setLength(int length) {
+        this.length = length;
+    }
+
+    public int getReceptiveField() {
+        return receptiveField;
+    }
+
+    public void setReceptiveField(int receptiveField) {
+        this.receptiveField = receptiveField;
+    }
+
+    public int getDepth() {
+        return depth;
+    }
+
+    public void setDepth(int depth) {
+        this.depth = depth;
+    }
+
+    public int getStride() {
+        return stride;
+    }
+
+    public void setStride(int stride) {
+        this.stride = stride;
+    }
+
+    public int getZeroPadding() {
+        return zeroPadding;
+    }
+
+    public void setZeroPadding(int zeroPadding) {
+        this.zeroPadding = zeroPadding;
+    }
+
 }
